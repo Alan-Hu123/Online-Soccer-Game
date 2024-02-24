@@ -1,83 +1,146 @@
+import socket
+from _thread import *
+import pickle
+import threading
+import time
+import random
+import math
+import pygame
+pygame.init()
+clock = pygame.time.Clock()
+SERVER_IP = socket.gethostbyname(socket.gethostname())
 
-import pygame as pg
+S = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+PORT = 5050
 
+WIDTH = 1600
+HEIGHT = 960
 
-pg.init()
-screen = pg.display.set_mode((640, 480))
-COLOR_INACTIVE = pg.Color('lightskyblue3')
-COLOR_ACTIVE = pg.Color('dodgerblue2')
-FONT = pg.font.Font(None, 32)
+PLAYER_RADIUS = 35
+PLAYER_VEL = 5
+BALL_RADIUS = 25
 
+DISCONNECT = "!Disconnect"
 
-class InputBox:
+class Player:
+    def __init__(self, x):
+        if(x % 2 == 0):
+            self.x = WIDTH/4
+            self.y = HEIGHT/2
+        else:
+            self.x = WIDTH*0.75
+            self.y = HEIGHT/2
+class Ball:
+    def __init__(self, x, y):
+        self.x = WIDTH/2
+        self.y = HEIGHT/2
+        self.velx = 0
+        self.vely = 0
 
-    def __init__(self, x, y, w, h, text=''):
-        self.rect = pg.Rect(x, y, w, h)
-        self.color = COLOR_INACTIVE
-        self.text = text
-        self.txt_surface = FONT.render(text, True, self.color)
-        self.active = False
+def collide(player, ball):
+    if (math.sqrt(((player.x - ball.x)**2) + ((player.y - ball.y) ** 2)) <= (PLAYER_RADIUS + BALL_RADIUS)):
+        ball.velx = (ball.x - player.x)
+        ball.vely = (ball.y - player.y)
 
-    def handle_event(self, event):
-        if event.type == pg.MOUSEBUTTONDOWN:
-            # If the user clicked on the input_box rect.
-            if self.rect.collidepoint(event.pos):
-                # Toggle the active variable.
-                self.active = not self.active
-            else:
-                self.active = False
-            # Change the current color of the input box.
-            self.color = COLOR_ACTIVE if self.active else COLOR_INACTIVE
-        if event.type == pg.KEYDOWN:
-            if self.active:
-                if event.key == pg.K_RETURN:
-                    print(self.text)
-                    self.text = ''
-                elif event.key == pg.K_BACKSPACE:
-                    self.text = self.text[:-1]
-                else:
-                    self.text += event.unicode
-                # Re-render the text.
-                self.txt_surface = FONT.render(self.text, True, self.color)
+def wallCollision(ball):
+    if(ball.x + ball.velx > 1500 - BALL_RADIUS or ball.x + ball.velx < 78 + BALL_RADIUS ):
+        if(ball.y > 430 and ball.y < 530):
+            ball.reset()
+        ball.velx *= -1
+    if(ball.y + ball.vely > 935 - BALL_RADIUS or ball.y + ball.vely < 17 + BALL_RADIUS):
+        ball.vely *= -1
+    
+    ball.x += ball.velx
+    ball.y += ball.vely
+    ball.velx *= 0.8
+    ball.vely *= 0.8
 
-    def update(self):
-        # Resize the box if the text is too long.
-        width = max(200, self.txt_surface.get_width()+10)
-        self.rect.w = width
-
-    def draw(self, screen):
-        # Blit the text.
-        screen.blit(self.txt_surface, (self.rect.x+5, self.rect.y+5))
-        # Blit the rect.
-        pg.draw.rect(screen, self.color, self.rect, 2)
-
-
-
-def main():
-    clock = pg.time.Clock()
-    input_box1 = InputBox(100, 100, 140, 32)
-    input_box2 = InputBox(100, 300, 140, 32)
-    input_boxes = [input_box1, input_box2]
-    done = False
-
-    while not done:
-        for event in pg.event.get():
-            if event.type == pg.QUIT:
-                done = True
-            for box in input_boxes:
-                box.handle_event(event)
-
-        for box in input_boxes:
-            box.update()
-
-        screen.fill((30, 30, 30))
-        for box in input_boxes:
-            box.draw(screen)
-
-        pg.display.flip()
-        clock.tick(30)
+   
+def move(player, input):
+    if(input[0] == "1") and player.x - PLAYER_RADIUS -  PLAYER_VEL >= 0:
+        player.x -= PLAYER_VEL
+    if(input[1] == "1") and player.x + PLAYER_RADIUS +  PLAYER_VEL <= WIDTH:
+        player.x += PLAYER_VEL
+    if(input[2] == "1") and player.y - PLAYER_RADIUS - PLAYER_VEL >= 0:
+        player.y -= PLAYER_VEL
+    if(input[3] == "1") and player.y + PLAYER_RADIUS + PLAYER_VEL <= HEIGHT:
+        player.y += PLAYER_VEL
 
 
-if __name__ == '__main__':
-    main()
-    pg.quit()
+try:
+    S.bind((SERVER_IP, PORT))
+except socket.error as e:
+    print(str(e))
+    print(f"{SERVER_IP} Could not Start")
+    quit()
+
+S.listen()
+
+print("SERVER STARTED")
+
+
+def moveBall(ball):
+    global ball_pos
+    while True:
+        wallCollision(ball)
+        ball_pos = [ball.x, ball.y]
+        clock.tick(60)
+        
+
+def handle_client(conn, id):
+    global connections, players, ball_pos
+    current_id = id
+    print(current_id, " Connected")
+
+    players[current_id] = Player(current_id)
+    connected = True
+    while connected:
+        try: 
+            data =  conn.recv(20)
+            if not data:
+                connected = False
+                print("false")
+            data = data.decode("utf-8")
+            # print(data)
+            players[current_id]
+        except Exception as e:
+            print(e)
+            break
+        if len(data) != 0:
+            move(players[current_id], data)
+        collide(players[current_id], ball)
+        
+        send_data = pickle.dumps((players, ball_pos))
+        conn.send(send_data)
+             
+
+    print("Disconnect")
+    connections -= 1
+    print("closed")
+    del players[current_id]
+    conn.close()
+
+    
+
+
+
+print("Setting Up Level")
+print("waiting for connetions")
+print((SERVER_IP, PORT))
+
+players = {}
+ball = Ball(WIDTH/2, HEIGHT/2)
+ball_pos = []
+connections = 0
+_id = 0
+
+start_new_thread(moveBall, (ball, ))
+while True:
+    host, addr = S.accept()
+    print("[Connection] Connected to : ", addr)
+
+    connections += 1
+    start_new_thread(handle_client, (host, _id))
+    _id += 1
+
+print("Server offline")
